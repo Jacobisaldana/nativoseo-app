@@ -1,0 +1,19 @@
+# Entorno virtual
+venv/
+
+# Archivos sensibles
+token.json
+client_secret.json
+.env
+
+# Archivos de Python/PyCharm
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.idea/
+
+# Logs y temporales
+*.log
+*.tmp
