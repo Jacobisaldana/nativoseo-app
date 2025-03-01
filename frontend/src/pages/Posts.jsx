@@ -24,7 +24,12 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Snackbar
+  Snackbar,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import { 
   Add as AddIcon, 
@@ -33,7 +38,8 @@ import {
   Send as SendIcon,
   Info as InfoIcon,
   CalendarToday as CalendarIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  OpenInNew as OpenInNewIcon
 } from '@mui/icons-material';
 import { useSearchParams, Link } from 'react-router-dom';
 import { postsService } from '../services/api';
@@ -167,24 +173,67 @@ function Posts() {
   }, []);
   
   // Manejar cambio de ubicación
-  const handleLocationChange = (event) => {
+  const handleLocationChange = async (event) => {
     const newLocationId = event.target.value;
     setSelectedLocation(newLocationId);
+    setLoading(true);
     
-    // Si estamos usando datos de ejemplo, filtrar los posts por ubicación
-    if (showFallback) {
-      const filteredPosts = EXAMPLE_POSTS.filter(post => 
-        post.locationInfo && post.locationInfo.locationId === newLocationId
-      );
-      setPosts(filteredPosts.length > 0 ? filteredPosts : EXAMPLE_POSTS);
-    } else {
-      // En una implementación real, podrías cargar posts específicos de esta ubicación
-      const selectedLocationPosts = posts.filter(post => 
-        post.locationInfo && post.locationInfo.locationId === newLocationId
-      );
-      if (selectedLocationPosts.length > 0) {
-        setPosts(selectedLocationPosts);
+    try {
+      // Si estamos usando datos de ejemplo, filtrar los posts por ubicación
+      if (showFallback) {
+        const filteredPosts = EXAMPLE_POSTS.filter(post => 
+          post.locationInfo && post.locationInfo.locationId === newLocationId
+        );
+        setPosts(filteredPosts.length > 0 ? filteredPosts : []);
+      } else {
+        // Cargar posts específicos de esta ubicación desde la API
+        console.log(`Cargando posts para la ubicación: ${newLocationId}`);
+        
+        // Buscar la cuenta de esta ubicación en las ubicaciones cargadas
+        const selectedLocationInfo = locations.find(loc => loc.locationId === newLocationId);
+        if (!selectedLocationInfo) {
+          console.error(`No se encontró información para la ubicación: ${newLocationId}`);
+          setPosts([]);
+          setLoading(false);
+          return;
+        }
+        
+        // Llamar a la API para obtener posts de esta ubicación específica
+        const response = await postsService.getPosts(
+          selectedLocationInfo.accountId, 
+          newLocationId,
+          10
+        );
+        
+        if (response && response.data && response.data.localPosts) {
+          // Añadir información de la ubicación a cada post
+          const postsWithLocationInfo = response.data.localPosts.map(post => ({
+            ...post,
+            locationInfo: {
+              locationId: newLocationId,
+              accountId: selectedLocationInfo.accountId,
+              locationName: selectedLocationInfo.locationName
+            }
+          }));
+          
+          setPosts(postsWithLocationInfo);
+          setDaysSinceLastPost(response.data.daysSinceLastPost || null);
+          setLastPostDate(response.data.lastPostDate || null);
+        } else {
+          // No se encontraron posts para esta ubicación
+          setPosts([]);
+        }
       }
+    } catch (error) {
+      console.error('Error al cargar posts para la ubicación:', error);
+      setPosts([]);
+      setNotification({
+        open: true,
+        message: 'Error al cargar publicaciones para esta ubicación',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -498,28 +547,180 @@ function Posts() {
       {/* Contenido principal */}
       {loading ? (
         <Box my={2}>
-          {[1, 2].map((item) => (
-            <Card key={item} sx={{ mb: 2 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Skeleton variant="text" width={100} />
-                  <Skeleton variant="rounded" width={80} height={24} />
+          {[1, 2, 3].map((item) => (
+            <Paper key={item} sx={{ mb: 2, p: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Skeleton variant="rectangular" width={120} height={80} sx={{ mr: 2, flexShrink: 0 }} />
+                <Box sx={{ width: '100%' }}>
+                  <Skeleton variant="text" sx={{ mb: 1 }} height={30} />
+                  <Skeleton variant="text" width="80%" />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+                    <Skeleton variant="text" width={100} />
+                    <Skeleton variant="rounded" width={80} height={24} />
+                  </Box>
                 </Box>
-                <Skeleton variant="rectangular" height={100} sx={{ mb: 2 }} />
-                <Skeleton variant="text" sx={{ mb: 1 }} />
-                <Skeleton variant="text" width="80%" />
-              </CardContent>
-            </Card>
+              </Box>
+            </Paper>
           ))}
         </Box>
       ) : posts.length > 0 ? (
-        <Grid container spacing={3}>
-          {posts.map((post, index) => (
-            <Grid item xs={12} md={6} key={post.name || `post-${index}`}>
-              <PostCard post={post} />
-            </Grid>
-          ))}
-        </Grid>
+        <Paper elevation={1}>
+          <Box sx={{ overflow: 'auto' }}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Imagen</TableCell>
+                  <TableCell>Contenido</TableCell>
+                  <TableCell>Fecha</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell>Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {posts.map((post, index) => {
+                  // Extraer la URL de la imagen si existe
+                  let imageUrl = null;
+                  if (post.media && post.media.length > 0) {
+                    if (post.media[0].googleUrl) {
+                      imageUrl = post.media[0].googleUrl;
+                    } else if (post.media[0].sourceUrl) {
+                      imageUrl = post.media[0].sourceUrl;
+                    } else if (typeof post.media[0] === 'string') {
+                      // En algunos casos, media podría ser directamente la URL
+                      imageUrl = post.media[0];
+                    }
+                  } else if (post.mediaUrl) {
+                    // Fallback para el campo mediaUrl que podría estar en la raíz del objeto
+                    imageUrl = post.mediaUrl;
+                  }
+                  
+                  // Validar que la URL sea segura antes de usarla
+                  if (imageUrl && !imageUrl.startsWith('http')) {
+                    imageUrl = null;
+                  }
+                  
+                  console.log('Post image URL:', imageUrl);
+                  
+                  // Formatear fecha
+                  const formattedDate = post.createTime 
+                    ? new Date(post.createTime).toLocaleDateString() + ' ' + new Date(post.createTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                    : 'Fecha no disponible';
+                  
+                  // Calcular días desde creación
+                  const daysAgo = post.createTime 
+                    ? Math.floor((new Date() - new Date(post.createTime)) / (1000 * 60 * 60 * 24))
+                    : null;
+                  
+                  return (
+                    <TableRow key={post.name || `post-${index}`}>
+                      <TableCell>
+                        {imageUrl ? (
+                          <Box 
+                            component="img"
+                            src={imageUrl}
+                            alt="Post image"
+                            sx={{ 
+                              width: 120, 
+                              height: 80, 
+                              objectFit: 'cover',
+                              borderRadius: 1
+                            }}
+                            onError={(e) => {
+                              console.error('Error loading image:', imageUrl);
+                              // Reemplazar la imagen rota con el placeholder
+                              e.target.style.display = 'none';
+                              const parent = e.target.parentElement;
+                              if (parent) {
+                                parent.style.backgroundColor = '#f0f0f0';
+                                parent.style.display = 'flex';
+                                parent.style.alignItems = 'center';
+                                parent.style.justifyContent = 'center';
+                                
+                                // Crear un ícono para mostrar en lugar de la imagen
+                                const icon = document.createElement('div');
+                                icon.innerHTML = 
+                                  '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="#9e9e9e">' +
+                                  '<path d="M0 0h24v24H0V0z" fill="none"/>' +
+                                  '<path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z"/>' +
+                                  '</svg>';
+                                parent.appendChild(icon);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <Box 
+                            sx={{ 
+                              width: 120, 
+                              height: 80, 
+                              bgcolor: 'grey.200',
+                              borderRadius: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                          >
+                            <ImageIcon color="disabled" />
+                          </Box>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ 
+                          maxHeight: '80px', 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical'
+                        }}>
+                          {post.summary}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip title={formattedDate}>
+                          <Typography variant="body2">
+                            {daysAgo === 0 ? 'Hoy' : 
+                             daysAgo === 1 ? 'Ayer' : 
+                             daysAgo < 7 ? `Hace ${daysAgo} días` : 
+                             daysAgo < 30 ? `Hace ${Math.floor(daysAgo / 7)} semanas` : 
+                             `Hace ${Math.floor(daysAgo / 30)} meses`}
+                          </Typography>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>
+                        <Chip 
+                          label={post.state === 'LIVE' ? 'Activa' : 'Borrador'} 
+                          color={post.state === 'LIVE' ? 'success' : 'default'}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <IconButton 
+                          size="small" 
+                          color="primary"
+                          component="a"
+                          href={post.searchUrl || "#"}
+                          target="_blank"
+                          disabled={!post.searchUrl}
+                          title="Ver publicación"
+                        >
+                          <OpenInNewIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton 
+                          size="small" 
+                          color="error"
+                          title="Eliminar"
+                          disabled
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Box>
+        </Paper>
       ) : (
         <Paper elevation={3} sx={{ p: 3, textAlign: 'center' }}>
           <Typography variant="body1" color="text.secondary">
