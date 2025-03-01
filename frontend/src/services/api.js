@@ -117,6 +117,31 @@ export const activeLocationsService = {
 
 // Servicios para las publicaciones
 export const postsService = {
+  // Método para subir imágenes
+  uploadImage: (file) => {
+    // Crear un FormData para enviar el archivo
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    console.log(`Uploading image: ${file.name}`);
+    
+    // Usar una instancia específica para esta petición porque cambia el Content-Type
+    return api.post('/upload-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000 // 60 segundos para subidas
+    })
+    .then(response => {
+      console.log("Image upload successful:", response.data);
+      return response;
+    })
+    .catch(error => {
+      console.error("Image upload error:", error.response || error);
+      throw error;
+    });
+  },
+  
   // Método original (mantener para compatibilidad)
   getPosts: (accountId, locationId, pageSize = 10, pageToken = null, signal = null) => {
     let url = `/test-posts?account_id=${accountId}&location_id=${locationId}&page_size=${pageSize}`;
@@ -322,7 +347,7 @@ export const postsService = {
     });
   },
   
-  // Nuevo método para crear posts en ubicaciones activas
+  // Nuevo método para crear posts en ubicaciones activas (versión simple)
   createActivePost: (locationId, summary, mediaUrl = null) => {
     console.log(`Creating post for active location: ${locationId}`);
     return api.post('/active-posts/create', null, {
@@ -339,6 +364,35 @@ export const postsService = {
     })
     .catch(error => {
       console.error("Create active post error:", error.response || error);
+      throw error;
+    });
+  },
+  
+  // Método extendido para crear posts con todos los parámetros
+  createActivePostExtended: (locationId, postData) => {
+    console.log(`Creating extended post for location: ${locationId}`, postData);
+    
+    // Construir objeto con parámetros para la solicitud
+    const params = {
+      location_id: locationId,
+      summary: postData.summary,
+      media_url: postData.mediaUrl,
+      language_code: postData.languageCode,
+      topic_type: postData.topicType,
+      cta_type: postData.callToAction.actionType,
+      cta_url: postData.callToAction.url
+    };
+    
+    return api.post('/active-posts/create-extended', null, {
+      params: params,
+      timeout: 30000
+    })
+    .then(response => {
+      console.log("Create extended post response:", response);
+      return response;
+    })
+    .catch(error => {
+      console.error("Create extended post error:", error.response || error);
       throw error;
     });
   }

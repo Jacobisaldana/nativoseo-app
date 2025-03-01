@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
@@ -113,7 +114,9 @@ async def callback_test(code: str, state: str, db: Session = Depends(get_db)):
         from main import save_token_global
         save_token_global(tokens["access_token"], tokens["refresh_token"])
         
-        return {"message": "Autenticación exitosa (modo pruebas)", "tokens": tokens}
+        # Redirigir al frontend con los tokens (esto permitirá conectar con la página de conexión exitosa)
+        redirect_url = f"http://localhost:5173/connect-google?access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}"
+        return RedirectResponse(url=redirect_url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener tokens: {str(e)}")
 

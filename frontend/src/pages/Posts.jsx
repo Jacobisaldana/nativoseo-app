@@ -39,7 +39,9 @@ import {
   Info as InfoIcon,
   CalendarToday as CalendarIcon,
   Refresh as RefreshIcon,
-  OpenInNew as OpenInNewIcon
+  OpenInNew as OpenInNewIcon,
+  CloudUpload as CloudUploadIcon,
+  InsertPhoto as InsertPhotoIcon
 } from '@mui/icons-material';
 import { useSearchParams, Link } from 'react-router-dom';
 import { postsService } from '../services/api';
@@ -79,7 +81,13 @@ function Posts() {
   const [openDialog, setOpenDialog] = useState(false);
   const [postForm, setPostForm] = useState({
     summary: '',
-    mediaUrl: ''
+    mediaUrl: '',
+    languageCode: 'es',
+    callToAction: {
+      actionType: 'LEARN_MORE',
+      url: 'https://atmosferadecoraciones.com/cortinas/'
+    },
+    topicType: 'STANDARD'
   });
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState('');
@@ -88,6 +96,10 @@ function Posts() {
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
   const [submittingPost, setSubmittingPost] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
+  
+  // Estado para la carga de imágenes
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   
   // Determinar el color del estado basado en los días desde la última publicación
   const getPublishStatusColor = () => {
@@ -263,18 +275,112 @@ function Posts() {
     setOpenDialog(false);
     setPostForm({
       summary: '',
-      mediaUrl: ''
+      mediaUrl: '',
+      localImagePreview: null,
+      languageCode: 'es',
+      callToAction: {
+        actionType: 'LEARN_MORE',
+        url: 'https://atmosferadecoraciones.com/cortinas/'
+      },
+      topicType: 'STANDARD'
     });
+    setSelectedFile(null);
   };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setPostForm({
-      ...postForm,
-      [name]: value
-    });
+    
+    // Manejar cambios en campos anidados como callToAction
+    if (name.includes('.')) {
+      const [parent, child] = name.split('.');
+      setPostForm({
+        ...postForm,
+        [parent]: {
+          ...postForm[parent],
+          [child]: value
+        }
+      });
+    } else {
+      // Manejar cambios en campos de nivel superior
+      setPostForm({
+        ...postForm,
+        [name]: value
+      });
+    }
   };
   
+  // Manejar la selección de archivo
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Verificar que sea una imagen
+      if (!file.type.startsWith('image/')) {
+        setNotification({
+          open: true,
+          message: 'El archivo seleccionado no es una imagen válida',
+          severity: 'error'
+        });
+        return;
+      }
+      
+      setSelectedFile(file);
+      
+      // Preview local de la imagen
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        // No establecemos mediaUrl aquí, porque queremos subir la imagen primero
+        setPostForm({
+          ...postForm,
+          localImagePreview: e.target.result
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  // Subir imagen al servidor
+  const handleUploadImage = async () => {
+    if (!selectedFile) return;
+    
+    setUploadingImage(true);
+    try {
+      const response = await postsService.uploadImage(selectedFile);
+      
+      // Actualizar el formulario con la URL de la imagen
+      setPostForm({
+        ...postForm,
+        mediaUrl: response.data.url,
+        // Mantener la vista previa local
+        localImagePreview: postForm.localImagePreview
+      });
+      
+      setNotification({
+        open: true,
+        message: 'Imagen subida exitosamente',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error subiendo imagen:', error);
+      setNotification({
+        open: true,
+        message: `Error al subir la imagen: ${error.message || 'Error desconocido'}`,
+        severity: 'error'
+      });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+  
+  // Borrar selección de imagen
+  const handleClearImage = () => {
+    setSelectedFile(null);
+    setPostForm({
+      ...postForm,
+      mediaUrl: '',
+      localImagePreview: null
+    });
+  };
+
   // Crear una nueva publicación
   const handleSubmitPost = async () => {
     if (!postForm.summary.trim() || !selectedLocation) return;
@@ -321,27 +427,38 @@ function Posts() {
           setSubmittingPost(false);
         }, 1500);
       } else {
-        // Modo real usando la API
-        const response = await postsService.createActivePost(
+        // Modo real usando la API con parámetros extendidos
+        console.log('Enviando formulario completo:', postForm);
+        const response = await postsService.createActivePostExtended(
           selectedLocation,
-          postForm.summary,
-          postForm.mediaUrl || null
+          {
+            summary: postForm.summary,
+            mediaUrl: postForm.mediaUrl || null,
+            languageCode: postForm.languageCode,
+            callToAction: postForm.callToAction,
+            topicType: postForm.topicType
+          }
         );
         
-        // Añadir el nuevo post al estado
+        // Añadir el nuevo post al estado usando nuestra función especializada
         if (response && response.data) {
-          // Añadir al principio de la lista
-          setPosts([response.data, ...posts]);
-          
-          // Actualizar información de última publicación
-          setDaysSinceLastPost(0);
-          setLastPostDate(new Date().toISOString());
+          // Usar la función especializada para añadir el post a la lista
+          addPostToList(response.data);
           
           setNotification({
             open: true,
             message: 'Publicación creada exitosamente',
             severity: 'success'
           });
+          
+          // Programar un refresh automático después de unos segundos
+          // para asegurarnos de que la imagen se actualice si Google la procesa
+          setTimeout(() => {
+            if (!showFallback) {
+              console.log('Refrescando lista para actualizar imágenes...');
+              handleRefresh();
+            }
+          }, 5000); // Esperar 5 segundos
         }
         
         handleCloseDialog();
@@ -359,6 +476,59 @@ function Posts() {
     }
   };
   
+  // Actualizar la lista de posts después de crear uno nuevo
+  const addPostToList = (newPostData) => {
+    try {
+      // Asegúrarse de que tengamos datos válidos
+      if (!newPostData) return;
+      
+      console.log('Nuevo post a agregar a la lista:', newPostData);
+      
+      // Extraer la URL de la imagen si existe
+      let imageUrl = null;
+      let mediaItems = [];
+      
+      // Procesar los datos de media
+      if (newPostData.media && Array.isArray(newPostData.media) && newPostData.media.length > 0) {
+        mediaItems = newPostData.media;
+        
+        // Intentar extraer la URL de la imagen
+        if (newPostData.media[0].googleUrl) {
+          imageUrl = newPostData.media[0].googleUrl;
+        } else if (newPostData.media[0].sourceUrl) {
+          imageUrl = newPostData.media[0].sourceUrl;
+        }
+      } else if (newPostData.sourceUrl) {
+        // Si hay sourceUrl pero no hay media, crear un objeto media
+        imageUrl = newPostData.sourceUrl;
+        mediaItems = [{ mediaFormat: "PHOTO", sourceUrl: newPostData.sourceUrl }];
+      }
+      
+      // Crear un objeto de post bien formateado
+      const formattedPost = {
+        ...newPostData,
+        media: mediaItems,
+        // Asegurar que estas propiedades existan
+        createTime: newPostData.createTime || new Date().toISOString(),
+        updateTime: newPostData.updateTime || new Date().toISOString(),
+        state: newPostData.state || 'LIVE',
+        // Añadir información de imagen explícitamente si existe
+        ...(imageUrl ? { imageUrl } : {})
+      };
+      
+      console.log('Post formateado para lista:', formattedPost);
+      
+      // Agregar al inicio de la lista de posts
+      setPosts(prev => [formattedPost, ...prev]);
+      
+      // Actualizar información de última publicación
+      setDaysSinceLastPost(0);
+      setLastPostDate(new Date().toISOString());
+    } catch (error) {
+      console.error('Error al preparar post para la lista:', error);
+    }
+  };
+
   // Función para refrescar datos
   const handleRefresh = () => {
     setLoading(true);
@@ -601,6 +771,15 @@ function Posts() {
                   // Imprimir el objeto post completo para depuración
                   console.log('Post data:', JSON.stringify(post, null, 2));
                   
+// Verificar específicamente si hay una imagen de Google
+if (post.media && Array.isArray(post.media)) {
+  post.media.forEach((mediaItem, idx) => {
+    if (mediaItem.googleUrl) {
+      console.log(`Encontrada googleUrl en post.media[${idx}]:`, mediaItem.googleUrl);
+    }
+  });
+}
+                  
                   // Verificar la estructura de media en el post
                   if (post.media && Array.isArray(post.media) && post.media.length > 0) {
                     console.log('Media found:', post.media[0]);
@@ -637,6 +816,44 @@ function Posts() {
                     console.log('Using mediaUrl at root level:', imageUrl);
                   }
                   
+                  // Para posts recién creados, Google puede no haber procesado la imagen aún.
+                  // Intentar extraer la URL de sourceUrl que enviamos en la creación del post
+                  if (!imageUrl && post.name && post.name.includes('localPosts') && post.createTime) {
+                    // Comprobar si el post se creó hace menos de 1 hora
+                    const creationTime = new Date(post.createTime);
+                    const now = new Date();
+                    const diffMs = now - creationTime;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    
+                    if (diffMins < 60) {
+                      console.log('Post recién creado, buscando sourceUrl en la estructura completa');
+                      
+                      // Buscar recursivamente cualquier propiedad sourceUrl en el objeto post
+                      const findSourceUrl = (obj) => {
+                        if (!obj || typeof obj !== 'object') return null;
+                        
+                        if (obj.sourceUrl && typeof obj.sourceUrl === 'string') {
+                          return obj.sourceUrl;
+                        }
+                        
+                        for (const key in obj) {
+                          if (typeof obj[key] === 'object') {
+                            const found = findSourceUrl(obj[key]);
+                            if (found) return found;
+                          }
+                        }
+                        
+                        return null;
+                      };
+                      
+                      const foundUrl = findSourceUrl(post);
+                      if (foundUrl) {
+                        console.log('Found sourceUrl in post:', foundUrl);
+                        imageUrl = foundUrl;
+                      }
+                    }
+                  }
+                  
                   // Validar que la URL sea segura antes de usarla
                   if (imageUrl && !imageUrl.startsWith('http')) {
                     console.log('Invalid URL (does not start with http):', imageUrl);
@@ -669,9 +886,26 @@ function Posts() {
                               objectFit: 'cover',
                               borderRadius: 1
                             }}
+                            loading="lazy"
+                            crossOrigin="anonymous"
+                            referrerPolicy="no-referrer"
+                            onLoad={() => console.log('Imagen cargada correctamente:', imageUrl)}
                             onError={(e) => {
                               console.error('Error loading image:', imageUrl);
-                              // Reemplazar la imagen rota con el placeholder
+                              // Intenta una URL alternativa para imágenes de Google
+                              if (imageUrl && imageUrl.includes('lh3.googleusercontent.com/p/AF1QipM')) {
+                                console.log('Intentando URL alternativa para imagen de Google');
+                                // Extraer el ID de la imagen
+                                const idMatch = imageUrl.match(/p\/(AF1Qip[A-Za-z0-9_-]+)/);
+                                if (idMatch && idMatch[1]) {
+                                  const altUrl = `https://lh3.googleusercontent.com/p/${idMatch[1]}=w600`;
+                                  console.log('URL alternativa:', altUrl);
+                                  e.target.src = altUrl;
+                                  return;
+                                }
+                              }
+                              
+                              // Si no se puede cargar, mostrar placeholder
                               e.target.style.display = 'none';
                               const parent = e.target.parentElement;
                               if (parent) {
@@ -783,35 +1017,216 @@ function Posts() {
       )}
 
       {/* Dialog para crear nueva publicación */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="sm">
+      <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth maxWidth="md">
         <DialogTitle>Nueva Publicación</DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            name="summary"
-            label="Contenido de la publicación"
-            type="text"
-            fullWidth
-            multiline
-            rows={4}
-            value={postForm.summary}
-            onChange={handleInputChange}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            margin="dense"
-            name="mediaUrl"
-            label="URL de la imagen (opcional)"
-            type="url"
-            fullWidth
-            value={postForm.mediaUrl}
-            onChange={handleInputChange}
-            helperText="Añade la URL de una imagen para acompañar tu publicación"
-            InputProps={{
-              startAdornment: <ImageIcon color="action" sx={{ mr: 1 }} />,
-            }}
-          />
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                autoFocus
+                margin="dense"
+                name="summary"
+                label="Contenido de la publicación"
+                type="text"
+                fullWidth
+                multiline
+                rows={4}
+                value={postForm.summary}
+                onChange={handleInputChange}
+                sx={{ mb: 1 }}
+              />
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                Imagen
+              </Typography>
+              
+              {/* Sección para subir imagen */}
+              <Box sx={{ mb: 2, border: '1px dashed #ccc', borderRadius: 1, p: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={6}>
+                    <input
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      id="upload-image-button"
+                      type="file"
+                      onChange={handleFileChange}
+                    />
+                    <label htmlFor="upload-image-button">
+                      <Button
+                        variant="outlined" 
+                        component="span"
+                        startIcon={<InsertPhotoIcon />}
+                        fullWidth
+                        disabled={uploadingImage}
+                      >
+                        Seleccionar Imagen
+                      </Button>
+                    </label>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      startIcon={uploadingImage ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+                      onClick={handleUploadImage}
+                      disabled={!selectedFile || uploadingImage || postForm.mediaUrl}
+                      fullWidth
+                    >
+                      {uploadingImage ? 'Subiendo...' : 'Subir al Servidor'}
+                    </Button>
+                  </Grid>
+                  
+                  {selectedFile && (
+                    <Grid item xs={12}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Typography variant="body2" sx={{ mr: 1 }}>
+                          {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
+                        </Typography>
+                        <IconButton 
+                          size="small" 
+                          color="error" 
+                          onClick={handleClearImage}
+                          disabled={uploadingImage}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+              
+              {/* Campo de URL (se mantiene como opción alternativa) */}
+              <TextField
+                margin="dense"
+                name="mediaUrl"
+                label="O pega la URL de una imagen"
+                type="url"
+                fullWidth
+                value={postForm.mediaUrl}
+                onChange={handleInputChange}
+                helperText="Si prefieres, puedes pegar una URL directamente"
+                InputProps={{
+                  startAdornment: <ImageIcon color="action" sx={{ mr: 1 }} />,
+                }}
+                disabled={!!selectedFile && !postForm.mediaUrl}
+              />
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <TextField
+                select
+                margin="dense"
+                name="languageCode"
+                label="Idioma"
+                fullWidth
+                value={postForm.languageCode}
+                onChange={handleInputChange}
+                helperText="Idioma de la publicación"
+              >
+                <MenuItem value="es">Español</MenuItem>
+                <MenuItem value="en">Inglés</MenuItem>
+                <MenuItem value="fr">Francés</MenuItem>
+                <MenuItem value="de">Alemán</MenuItem>
+                <MenuItem value="pt">Portugués</MenuItem>
+              </TextField>
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <TextField
+                select
+                margin="dense"
+                name="topicType"
+                label="Tipo de contenido"
+                fullWidth
+                value={postForm.topicType}
+                onChange={handleInputChange}
+                helperText="Categoría de la publicación"
+              >
+                <MenuItem value="STANDARD">Estándar</MenuItem>
+                <MenuItem value="EVENT">Evento</MenuItem>
+                <MenuItem value="OFFER">Oferta</MenuItem>
+                <MenuItem value="PRODUCT">Producto</MenuItem>
+              </TextField>
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                Botón de llamada a la acción
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <TextField
+                select
+                margin="dense"
+                name="callToAction.actionType"
+                label="Tipo de acción"
+                fullWidth
+                value={postForm.callToAction.actionType}
+                onChange={handleInputChange}
+                helperText="Qué acción se mostrará en el botón"
+              >
+                <MenuItem value="LEARN_MORE">Conocer más</MenuItem>
+                <MenuItem value="BOOK">Reservar</MenuItem>
+                <MenuItem value="ORDER">Ordenar</MenuItem>
+                <MenuItem value="SHOP">Comprar</MenuItem>
+                <MenuItem value="SIGN_UP">Registrarse</MenuItem>
+                <MenuItem value="CALL">Llamar</MenuItem>
+              </TextField>
+            </Grid>
+            
+            <Grid item xs={12} sm={6}>
+              <TextField
+                margin="dense"
+                name="callToAction.url"
+                label="URL de destino"
+                type="url"
+                fullWidth
+                value={postForm.callToAction.url}
+                onChange={handleInputChange}
+                helperText="¿A dónde llevará el botón de acción?"
+              />
+            </Grid>
+          </Grid>
+          
+          {(postForm.mediaUrl || postForm.localImagePreview) && (
+            <Box sx={{ mt: 2, p: 2, border: '1px dashed #ccc', borderRadius: 1 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Vista previa de imagen
+              </Typography>
+              <Box 
+                component="img"
+                src={postForm.mediaUrl || postForm.localImagePreview}
+                alt="Vista previa"
+                sx={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '200px',
+                  objectFit: 'contain',
+                  mt: 1
+                }}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  const errorMsg = document.createElement('p');
+                  errorMsg.textContent = 'Error al cargar la imagen. Verifica la URL.';
+                  errorMsg.style.color = 'red';
+                  e.target.parentNode.appendChild(errorMsg);
+                }}
+              />
+              {postForm.mediaUrl && (
+                <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                  La imagen está lista para ser publicada
+                </Typography>
+              )}
+              {!postForm.mediaUrl && postForm.localImagePreview && (
+                <Typography variant="caption" display="block" color="warning.main" sx={{ mt: 1 }}>
+                  Recuerda hacer clic en "Subir al Servidor" antes de publicar
+                </Typography>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog} color="inherit">

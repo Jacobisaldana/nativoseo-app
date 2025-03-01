@@ -1,0 +1,18 @@
+{
+  "name": "nativoseo-app",
+  "version": "1.0.0",
+  "description": "Backend y Frontend para NativoSEO",
+  "scripts": {
+    "start:backend": "uvicorn main:app --reload",
+    "start:frontend": "cd frontend && npm run dev",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
+  },
+  "author": "",
+  "license": "ISC",
+  "workspaces": [
+    "frontend"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

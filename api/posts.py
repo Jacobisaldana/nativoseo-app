@@ -4,41 +4,76 @@ from google.oauth2.credentials import Credentials
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-def create_local_post(credentials: Credentials, account_id: str, location_id: str, summary: str, media_url: str = None):
-    """Crea una publicación (actualización) en una ubicación."""
+def create_local_post(credentials: Credentials, account_id: str, location_id: str, summary: str, media_url: str = None, 
+                 language_code: str = "es", topic_type: str = "STANDARD", 
+                 cta_type: str = "LEARN_MORE", cta_url: str = "https://atmosferadecoraciones.com/cortinas/"):
+    """
+    Crea una publicación (actualización) en una ubicación con parámetros extendidos.
+    
+    Args:
+        credentials: Credenciales de Google
+        account_id: ID de la cuenta
+        location_id: ID de la ubicación
+        summary: Contenido de la publicación
+        media_url: URL de la imagen (opcional)
+        language_code: Código de idioma (por defecto "es")
+        topic_type: Tipo de tema (STANDARD, EVENT, OFFER, PRODUCT)
+        cta_type: Tipo de Call-to-Action (LEARN_MORE, BOOK, ORDER, SHOP, SIGN_UP, CALL)
+        cta_url: URL del Call-to-Action
+    """
     try:
         if not account_id.startswith("accounts/"):
             account_id = f"accounts/{account_id}"
         if not location_id.startswith("locations/"):
             location_id = f"locations/{location_id}"
+        
         url = f"https://mybusiness.googleapis.com/v4/{account_id}/{location_id}/localPosts"
+        
         headers = {
             "Authorization": f"Bearer {credentials.token}",
             "Content-Type": "application/json"
         }
+        
+        # Construir el objeto JSON para la solicitud
         body = {
-            "languageCode": "es",
+            "languageCode": language_code,
             "summary": summary,
             "callToAction": {
-                "actionType": "LEARN_MORE",
-                "url": "https://atmosferadecoraciones.com/cortinas/"
+                "actionType": cta_type,
+                "url": cta_url
             },
-            "topicType": "STANDARD"
+            "topicType": topic_type
         }
+        
+        # Añadir imagen si se proporciona URL
         if media_url:
             body["media"] = [{
                 "mediaFormat": "PHOTO",
                 "sourceUrl": media_url
             }]
-        print(f"Enviando solicitud a: {url} con body={body}")
+        
+        print(f"Enviando solicitud a: {url}")
+        print(f"Datos de la solicitud: {body}")
+        
         response = requests.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
+        
         print(f"Respuesta recibida: {data}")
         return data
     except requests.exceptions.RequestException as e:
-        raise Exception(f"Error HTTP al crear publicación: {str(e)}")
+        print(f"Error HTTP al crear publicación: {str(e)}")
+        # Intentar obtener más detalles si es posible
+        error_message = str(e)
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_details = e.response.json()
+                error_message = f"{error_message}: {error_details}"
+            except:
+                pass
+        raise Exception(f"Error HTTP al crear publicación: {error_message}")
     except Exception as e:
+        print(f"Error inesperado al crear publicación: {str(e)}")
         raise Exception(f"Error inesperado al crear publicación: {str(e)}")
 
 def list_posts(credentials: Credentials, account_id: str, location_id: str, page_size: int = 10, page_token: str = None) -> Dict[str, Any]:

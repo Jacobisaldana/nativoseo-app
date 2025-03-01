@@ -1,9 +1,10 @@
 # main.py
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.oauth2.credentials import Credentials
+from storage.minio_client import upload_file
 
 from database import engine, Base, get_db
 from models import User, OauthToken, ActiveLocation, GoogleAccount, Location, Review, Post, MediaItem
@@ -350,7 +351,7 @@ async def create_post_active_location(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Crea un post en una ubicación activa específica."""
+    """Crea un post en una ubicación activa específica (versión simple)."""
     global global_token
     if not global_token:
         raise HTTPException(status_code=401, detail="No token guardado. Usa /save-token primero")
@@ -392,4 +393,109 @@ async def create_post_active_location(
         return result
     except Exception as e:
         print(f"Error al crear post: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/active-posts/create-extended")
+async def create_post_active_location_extended(
+    location_id: str,
+    summary: str,
+    media_url: str = None,
+    language_code: str = "es",
+    topic_type: str = "STANDARD",
+    cta_type: str = "LEARN_MORE",
+    cta_url: str = "https://atmosferadecoraciones.com/cortinas/",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Crea un post en una ubicación activa específica con parámetros extendidos."""
+    global global_token
+    if not global_token:
+        raise HTTPException(status_code=401, detail="No token guardado. Usa /save-token primero")
+    
+    # Verificar que la ubicación está activa para este usuario
+    active_location = db.query(ActiveLocation).filter(
+        ActiveLocation.user_id == current_user.id,
+        ActiveLocation.location_id == location_id
+    ).first()
+    
+    if not active_location:
+        raise HTTPException(
+            status_code=404,
+            detail="Esta ubicación no está activa para el usuario actual"
+        )
+    
+    try:
+        credentials = Credentials(
+            token=global_token["access_token"],
+            refresh_token=global_token["refresh_token"],
+            token_uri=global_token["token_uri"],
+            client_id=global_token["client_id"],
+            client_secret=global_token["client_secret"],
+            scopes=global_token["scopes"]
+        )
+        
+        # Crear el post utilizando la API con parámetros extendidos
+        print(f"Creando post extendido en ubicación activa: {location_id}, cuenta: {active_location.account_id}")
+        result = api_create_post(
+            credentials, 
+            active_location.account_id, 
+            location_id, 
+            summary, 
+            media_url,
+            language_code,
+            topic_type,
+            cta_type,
+            cta_url
+        )
+        
+        # Añadir información de la ubicación al resultado
+        if result:
+            result["locationInfo"] = {
+                "locationId": active_location.location_id,
+                "accountId": active_location.account_id,
+                "locationName": active_location.location_name
+            }
+        
+        return result
+    except Exception as e:
+        print(f"Error al crear post extendido: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload-image")
+async def upload_image_endpoint(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Sube una imagen a MinIO y devuelve la URL para usar en el post."""
+    try:
+        # Leer el contenido del archivo
+        contents = await file.read()
+        
+        # Verificar que es un archivo de imagen
+        content_type = file.content_type
+        if not content_type or not content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=400,
+                detail="El archivo debe ser una imagen (jpg, png, etc.)"
+            )
+        
+        # Imprimir información de diagnóstico
+        print(f"Subiendo archivo: {file.filename}, tipo: {content_type}, tamaño: {len(contents)} bytes")
+        
+        # Subir la imagen a MinIO usando BytesIO
+        from io import BytesIO
+        file_stream = BytesIO(contents)
+        url = upload_file(file_stream, content_type)
+        
+        # Devolver la URL que se puede usar en el post
+        return {
+            "url": url,
+            "filename": file.filename,
+            "content_type": content_type,
+            "size": len(contents)
+        }
+    except Exception as e:
+        import traceback
+        print(f"Error al subir imagen: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
