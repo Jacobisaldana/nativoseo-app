@@ -179,18 +179,75 @@ export const postsService = {
     try {
       // Usar el nuevo endpoint de ubicaciones activas
       const result = await postsService.getActivePosts(pageSize, null, signal);
+      console.log("Active posts API response:", result.data);
+      
+      // Depurar posts recibidos
+      if (result.data.posts && result.data.posts.length > 0) {
+        console.log("First post from API:", JSON.stringify(result.data.posts[0], null, 2));
+        
+        // Verificar específicamente la estructura de media
+        if (result.data.posts[0].media) {
+          console.log("Media structure from API:", JSON.stringify(result.data.posts[0].media, null, 2));
+        } else {
+          console.warn("No media found in first post");
+        }
+      }
+      
+      // Verificar las ubicaciones
+      if (result.data.locations && result.data.locations.length > 0) {
+        console.log("Locations from API:", JSON.stringify(result.data.locations, null, 2));
+      }
+      
+      // Adaptar y procesar posts para asegurar compatibilidad con la UI
+      const processedPosts = (result.data.posts || []).map(post => {
+        // Conservar estructura completa
+        return {
+          ...post,
+          // Asegurar que siempre haya una propiedad media como array
+          media: Array.isArray(post.media) 
+            ? post.media 
+            : (post.media ? [post.media] : []),
+          // Asegurar que el estado sea LIVE por defecto si no está definido
+          state: post.state || 'LIVE',
+          // Mantener compatibilidad con fechas
+          createTime: post.createTime || post.updateTime || new Date().toISOString()
+        };
+      });
+      
+      // Calcular días desde última publicación
+      let minDaysSinceLastPost = 999;
+      if (result.data.locations && result.data.locations.length > 0) {
+        const validDays = result.data.locations
+          .map(loc => loc.daysSinceLastPost)
+          .filter(days => days !== null && days !== undefined);
+          
+        if (validDays.length > 0) {
+          minDaysSinceLastPost = Math.min(...validDays);
+        } else if (processedPosts.length > 0) {
+          // Intentar calcular en base a la fecha del post más reciente
+          const latestPost = processedPosts[0];
+          if (latestPost.createTime) {
+            try {
+              const postDate = new Date(latestPost.createTime);
+              const diffTime = Math.abs(new Date() - postDate);
+              minDaysSinceLastPost = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            } catch (e) {
+              console.warn("Error calculating days from post date:", e);
+            }
+          }
+        }
+      }
+      
       return {
         success: true,
         data: {
           // Adaptar estructura de datos para mantener compatibilidad
-          localPosts: result.data.posts || [],
+          localPosts: processedPosts,
           locations: result.data.locations || [],
-          // Calcular días desde la última publicación (usando el menor valor de todas las ubicaciones)
-          daysSinceLastPost: Math.min(...result.data.locations.map(loc => loc.daysSinceLastPost || 999)),
+          // Días desde la última publicación
+          daysSinceLastPost: minDaysSinceLastPost === 999 ? 0 : minDaysSinceLastPost,
           // Fecha de la última publicación
-          lastPostDate: result.data.posts && result.data.posts.length > 0 
-            ? result.data.posts[0].createTime 
-            : null
+          lastPostDate: processedPosts.length > 0 ? processedPosts[0].createTime : null
         },
         error: null
       };

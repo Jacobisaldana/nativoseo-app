@@ -131,18 +131,35 @@ function Posts() {
         
         if (result.success) {
           console.log("Loaded real posts data:", result.data);
+          console.log("Posts array:", result.data.localPosts);
+          
+          // Verificar si hay publicaciones con imágenes
+          if (result.data.localPosts && result.data.localPosts.length > 0) {
+            let hasImages = false;
+            result.data.localPosts.forEach((post, index) => {
+              if (post.media && post.media.length > 0) {
+                console.log(`Post ${index} has media:`, post.media);
+                hasImages = true;
+              }
+            });
+            console.log("¿Hay publicaciones con imágenes?", hasImages);
+          }
           
           // Establecer los posts
           setPosts(result.data.localPosts || []);
           
           // Establecer las ubicaciones disponibles
           if (result.data.locations && result.data.locations.length > 0) {
+            console.log("Locations from API:", result.data.locations);
             setLocations(result.data.locations);
             
             // Si no hay una ubicación seleccionada, seleccionar la primera
             if (!selectedLocation && result.data.locations.length > 0) {
               setSelectedLocation(result.data.locations[0].locationId);
+              console.log("Selected first location:", result.data.locations[0].locationId);
             }
+          } else {
+            console.warn("No locations found in API response");
           }
           
           // Establecer información de última publicación
@@ -580,26 +597,53 @@ function Posts() {
                 {posts.map((post, index) => {
                   // Extraer la URL de la imagen si existe
                   let imageUrl = null;
-                  if (post.media && post.media.length > 0) {
+                  
+                  // Imprimir el objeto post completo para depuración
+                  console.log('Post data:', JSON.stringify(post, null, 2));
+                  
+                  // Verificar la estructura de media en el post
+                  if (post.media && Array.isArray(post.media) && post.media.length > 0) {
+                    console.log('Media found:', post.media[0]);
+                    
+                    // Verificar si googleUrl existe directamente
                     if (post.media[0].googleUrl) {
                       imageUrl = post.media[0].googleUrl;
-                    } else if (post.media[0].sourceUrl) {
+                      console.log('Using googleUrl:', imageUrl);
+                    } 
+                    // Alternativas si googleUrl no existe
+                    else if (post.media[0].sourceUrl) {
                       imageUrl = post.media[0].sourceUrl;
-                    } else if (typeof post.media[0] === 'string') {
-                      // En algunos casos, media podría ser directamente la URL
+                      console.log('Using sourceUrl:', imageUrl);
+                    } 
+                    // Si media[0] es una cadena, usarla directamente
+                    else if (typeof post.media[0] === 'string') {
                       imageUrl = post.media[0];
+                      console.log('Using media string:', imageUrl);
                     }
-                  } else if (post.mediaUrl) {
-                    // Fallback para el campo mediaUrl que podría estar en la raíz del objeto
+                    // Si hay un campo name en el objeto media, podría contener una referencia a la imagen
+                    else if (post.media[0].name) {
+                      // Construir URL basada en el ID de la imagen (usualmente la última parte del name)
+                      const nameParts = post.media[0].name.split('/');
+                      const imageId = nameParts[nameParts.length - 1];
+                      if (imageId && imageId.startsWith('AF1QipP')) {
+                        imageUrl = `https://lh3.googleusercontent.com/p/${imageId}`;
+                        console.log('Constructed URL from name:', imageUrl);
+                      }
+                    }
+                  } 
+                  // Verificar si hay un campo mediaUrl en la raíz del objeto
+                  else if (post.mediaUrl) {
                     imageUrl = post.mediaUrl;
+                    console.log('Using mediaUrl at root level:', imageUrl);
                   }
                   
                   // Validar que la URL sea segura antes de usarla
                   if (imageUrl && !imageUrl.startsWith('http')) {
+                    console.log('Invalid URL (does not start with http):', imageUrl);
                     imageUrl = null;
                   }
                   
-                  console.log('Post image URL:', imageUrl);
+                  console.log('Final image URL:', imageUrl);
                   
                   // Formatear fecha
                   const formattedDate = post.createTime 
