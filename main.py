@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.oauth2.credentials import Credentials
 from storage.minio_client import upload_file
+from datetime import datetime
 
 from database import engine, Base, get_db
 from models import User, OauthToken, ActiveLocation, GoogleAccount, Location, Review, Post, MediaItem
@@ -56,6 +57,11 @@ app.include_router(locations.router)
 @app.get("/")
 async def root():
     return {"message": "NativoSEO Backend con FastAPI y Base de Datos"}
+
+@app.get("/health")
+async def health_check():
+    """Endpoint para verificación de salud del servicio."""
+    return {"status": "healthy", "timestamp": str(datetime.now())}
 
 # Rutas simplificadas para pruebas directas
 @app.get("/save-token")
