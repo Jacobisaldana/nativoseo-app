@@ -55,14 +55,14 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @router.get("/login")
 async def login():
     # Ruta estándar que requiere autenticación
-    auth_url, state, flow = get_auth_url(redirect_uri="http://localhost:8000/auth/callback")
+    auth_url, state, flow = get_auth_url(redirect_uri="http://api.nativoseo.com/auth/callback")
     flow_storage[state] = flow
     return {"auth_url": auth_url}
 
 @router.get("/login-test")
 async def login_test():
     # Ruta alternativa para pruebas sin requerir autenticación previa
-    auth_url, state, flow = get_auth_url(redirect_uri="http://localhost:8000/auth/callback-test")
+    auth_url, state, flow = get_auth_url(redirect_uri="http://api.nativoseo.com/auth/callback-test")
     flow_storage[state] = flow
     return {"auth_url": auth_url}
 
@@ -115,7 +115,7 @@ async def callback_test(code: str, state: str, db: Session = Depends(get_db)):
         save_token_global(tokens["access_token"], tokens["refresh_token"])
         
         # Redirigir al frontend con los tokens (esto permitirá conectar con la página de conexión exitosa)
-        redirect_url = f"http://localhost:5173/connect-google?access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}"
+        redirect_url = f"http://nativoseo.com/connect-google?access_token={tokens['access_token']}&refresh_token={tokens['refresh_token']}"
         return RedirectResponse(url=redirect_url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener tokens: {str(e)}")

@@ -9,7 +9,7 @@ load_dotenv()
 SCOPES = os.getenv("SCOPES", "https://www.googleapis.com/auth/business.manage").split(",")
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback-test")
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://api.nativoseo.com/auth/callback-test")
 CLIENT_SECRETS_FILE = "client_secret.json"
 
 def get_auth_url(redirect_uri=None):
